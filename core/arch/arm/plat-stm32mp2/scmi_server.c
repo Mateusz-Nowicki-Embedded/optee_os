@@ -40,6 +40,7 @@ static struct stm32_scmi_rd stm32_scmi_reset_domain[] = {
 
 struct channel_resources {
 	struct scmi_msg_channel *channel;
+	const char *agent_name;
 	struct stm32_scmi_rd *rd;
 	size_t rd_count;
 };
@@ -47,6 +48,7 @@ struct channel_resources {
 static const struct channel_resources scmi_channel[] = {
 	[0] = {
 		.channel = &(struct scmi_msg_channel){ },
+		.agent_name = "a35-nsec",
 		.rd = stm32_scmi_reset_domain,
 		.rd_count = ARRAY_SIZE(stm32_scmi_reset_domain),
 	},
@@ -101,6 +103,18 @@ const char *plat_scmi_vendor_name(void)
 const char *plat_scmi_sub_vendor_name(void)
 {
 	return sub_vendor;
+}
+
+size_t plat_scmi_agent_count(void)
+{
+	return ARRAY_SIZE(scmi_channel);
+}
+
+const char *plat_scmi_agent_name(unsigned int agent_id)
+{
+	const struct channel_resources *res = find_resource(agent_id);
+
+	return res ? res->agent_name : NULL;
 }
 
 static struct stm32_scmi_rd *find_rd(unsigned int channel_id,
