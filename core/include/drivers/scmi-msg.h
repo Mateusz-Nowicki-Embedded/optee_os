@@ -204,6 +204,24 @@ const char *plat_scmi_vendor_name(void);
 /* Get the name of the SCMI sub-vendor for the platform */
 const char *plat_scmi_sub_vendor_name(void);
 
+/*
+ * Return number of SCMI agents known by the platform, reported in base
+ * protocol attributes. Agent IDs are 0 to count - 1 and map 1:1 to
+ * channel IDs. Default (weak) implementation returns 0, meaning
+ * BASE_DISCOVER_AGENT is not supported.
+ */
+size_t plat_scmi_agent_count(void);
+
+/*
+ * Get the name of an SCMI agent
+ *
+ * @agent_id: SCMI agent ID, below plat_scmi_agent_count()
+ * Return a pointer to the agent name. Shall not return NULL for an agent
+ * ID below plat_scmi_agent_count(). Default (weak) implementation
+ * returns NULL and is valid only with a null agent count.
+ */
+const char *plat_scmi_agent_name(unsigned int agent_id);
+
 /* Handlers for SCMI Clock protocol services */
 
 /*
