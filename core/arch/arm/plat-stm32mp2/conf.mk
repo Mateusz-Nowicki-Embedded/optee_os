@@ -61,7 +61,6 @@ $(call force,CFG_DT,y)
 $(call force,CFG_GIC,y)
 $(call force,CFG_HALT_CORES_SGI,15)
 $(call force,CFG_INIT_CNTVOFF,y)
-$(call force,CFG_SCMI_SCPFW_PRODUCT,stm32mp2)
 $(call force,CFG_SECURE_TIME_SOURCE_CNTPCT,y)
 $(call force,CFG_STM32_SHARED_IO,y)
 $(call force,CFG_STM32_STGEN,y)
@@ -124,9 +123,18 @@ CFG_STM32_RTC_HIGH_ACCURACY ?= n
 
 CFG_SCMI_PTA ?= y
 CFG_SCMI_SCPFW ?= y
+ifeq ($(CFG_SCMI_SCPFW),y)
+$(call force,CFG_SCMI_SCPFW_PRODUCT,stm32mp2)
 CFG_SCMI_SCPFW_FROM_DT ?= y
 CFG_SCMI_SERVER_CLOCK_CONSUMER ?= y
 CFG_SCMI_SERVER_RESET_CONSUMER ?= y
+else ifeq ($(CFG_SCMI_PTA),y)
+$(call force,CFG_SCMI_MSG_DRIVERS,y,Mandated by CFG_SCMI_PTA)
+$(call force,CFG_SCMI_MSG_SHM_MSG,y,Mandated by CFG_SCMI_PTA)
+CFG_SCMI_MSG_USE_CLK ?= y
+CFG_SCMI_MSG_CLOCK ?= y
+CFG_SCMI_MSG_RESET_DOMAIN ?= y
+endif
 # Default enable some test facitilites
 CFG_ENABLE_EMBEDDED_TESTS ?= y
 CFG_WITH_STATS ?= y
