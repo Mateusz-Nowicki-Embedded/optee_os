@@ -71,7 +71,7 @@ const char *plat_scmi_clock_get_name(unsigned int channel_id,
 
 	clk = clk_scmi_get_by_id(channel_id, scmi_id);
 	if (!clk)
-		return "dummy";
+		return NULL;
 
 	return clk_get_name(clk->clk);
 }
