@@ -595,6 +595,50 @@ int32_t plat_scmi_perf_level_latency(unsigned int channel_id,
 	return SCMI_SUCCESS;
 }
 
+static bool cpu_opp_power_known(void)
+{
+	unsigned int n = 0;
+
+	for (n = 0; n < stm32_cpu_opp_count(); n++)
+		if (!stm32_cpu_opp_power_uw(n))
+			return false;
+
+	return stm32_cpu_opp_count() != 0;
+}
+
+unsigned int plat_scmi_perf_power_scale(unsigned int channel_id)
+{
+	if (plat_scmi_perf_count(channel_id) && cpu_opp_power_known())
+		return SCMI_PERF_POWER_SCALE_UW;
+
+	return SCMI_PERF_POWER_SCALE_ABSTRACT;
+}
+
+int32_t plat_scmi_perf_level_power_cost(unsigned int channel_id,
+					unsigned int domain_id,
+					unsigned int level,
+					unsigned int *power_cost)
+{
+	unsigned int n = 0;
+
+	if (!find_perfd(channel_id, domain_id))
+		return SCMI_NOT_FOUND;
+
+	if (!cpu_opp_power_known()) {
+		*power_cost = 0;
+		return SCMI_SUCCESS;
+	}
+
+	for (n = 0; n < stm32_cpu_opp_count(); n++) {
+		if (stm32_cpu_opp_level(n) == level) {
+			*power_cost = stm32_cpu_opp_power_uw(n);
+			return SCMI_SUCCESS;
+		}
+	}
+
+	return SCMI_NOT_FOUND;
+}
+
 int32_t plat_scmi_perf_levels_array(unsigned int channel_id,
 				    unsigned int domain_id, size_t start_index,
 				    unsigned int *levels, size_t *nb_elts)
