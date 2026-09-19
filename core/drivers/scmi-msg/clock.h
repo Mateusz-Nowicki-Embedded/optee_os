@@ -23,6 +23,7 @@ enum scmi_clock_command_id {
 	SCMI_CLOCK_RATE_SET = 0x005,
 	SCMI_CLOCK_RATE_GET = 0x006,
 	SCMI_CLOCK_CONFIG_SET = 0x007,
+	SCMI_CLOCK_NAME_GET = 0x008,
 };
 
 /* Protocol attributes */
@@ -39,10 +40,30 @@ struct scmi_clock_attributes_a2p {
 
 #define SCMI_CLOCK_NAME_LENGTH_MAX	16
 
+/* Macros for scmi_clock_attributes_p2a:attributes */
+#define SCMI_CLOCK_ATTRIBUTES_EXTENDED_NAME	BIT(29)
+#define SCMI_CLOCK_ATTRIBUTES_ENABLED		BIT(0)
+
 struct scmi_clock_attributes_p2a {
 	int32_t status;
 	uint32_t attributes;
 	char clock_name[SCMI_CLOCK_NAME_LENGTH_MAX];
+};
+
+/*
+ * Clock Name Get
+ */
+
+#define SCMI_CLOCK_EXTENDED_NAME_LENGTH_MAX	64
+
+struct scmi_clock_name_get_a2p {
+	uint32_t clock_id;
+};
+
+struct scmi_clock_name_get_p2a {
+	int32_t status;
+	uint32_t flags;
+	char clock_name[SCMI_CLOCK_EXTENDED_NAME_LENGTH_MAX];
 };
 
 /*

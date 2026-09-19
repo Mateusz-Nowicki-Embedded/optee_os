@@ -129,6 +129,54 @@ static void scmi_clock_attributes(struct scmi_msg *msg)
 	};
 	const char *name = NULL;
 	unsigned int clock_id = 0;
+	int32_t state = 0;
+
+	if (msg->in_size != sizeof(*in_args)) {
+		scmi_status_response(msg, SCMI_PROTOCOL_ERROR);
+		return;
+	}
+
+	if (in_args->clock_id >= plat_scmi_clock_count(msg->channel_id)) {
+		scmi_status_response(msg, SCMI_INVALID_PARAMETERS);
+		return;
+	}
+
+	clock_id = confine_array_index(in_args->clock_id,
+				       plat_scmi_clock_count(msg->channel_id));
+
+	name = plat_scmi_clock_get_name(msg->channel_id, clock_id);
+	if (!name) {
+		scmi_status_response(msg, SCMI_NOT_FOUND);
+		return;
+	}
+
+	if (strlen(name) >= sizeof(return_values.clock_name)) {
+		memcpy(return_values.clock_name, name,
+		       sizeof(return_values.clock_name) - 1);
+		return_values.attributes |= SCMI_CLOCK_ATTRIBUTES_EXTENDED_NAME;
+	} else {
+		COPY_NAME_IDENTIFIER(return_values.clock_name, name);
+	}
+
+	state = plat_scmi_clock_get_state(msg->channel_id, clock_id);
+	if (state < 0) {
+		scmi_status_response(msg, state);
+		return;
+	}
+	if (state)
+		return_values.attributes |= SCMI_CLOCK_ATTRIBUTES_ENABLED;
+
+	scmi_write_response(msg, &return_values, sizeof(return_values));
+}
+
+static void scmi_clock_name_get(struct scmi_msg *msg)
+{
+	const struct scmi_clock_name_get_a2p *in_args = (void *)msg->in;
+	struct scmi_clock_name_get_p2a return_values = {
+		.status = SCMI_SUCCESS,
+	};
+	const char *name = NULL;
+	unsigned int clock_id = 0;
 
 	if (msg->in_size != sizeof(*in_args)) {
 		scmi_status_response(msg, SCMI_PROTOCOL_ERROR);
@@ -150,9 +198,6 @@ static void scmi_clock_attributes(struct scmi_msg *msg)
 	}
 
 	COPY_NAME_IDENTIFIER(return_values.clock_name, name);
-
-	return_values.attributes = plat_scmi_clock_get_state(msg->channel_id,
-							     clock_id);
 
 	scmi_write_response(msg, &return_values, sizeof(return_values));
 }
@@ -393,6 +438,7 @@ static const scmi_msg_handler_t scmi_clock_handler_table[] = {
 	[SCMI_CLOCK_RATE_SET] = scmi_clock_rate_set,
 	[SCMI_CLOCK_RATE_GET] = scmi_clock_rate_get,
 	[SCMI_CLOCK_CONFIG_SET] = scmi_clock_config_set,
+	[SCMI_CLOCK_NAME_GET] = scmi_clock_name_get,
 };
 
 static bool message_id_is_supported(unsigned int message_id)
