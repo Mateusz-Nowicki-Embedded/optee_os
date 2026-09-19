@@ -88,7 +88,7 @@ static void report_attributes(struct scmi_msg *msg)
 	size_t clk_count = plat_scmi_clock_count(msg->channel_id);
 	struct scmi_protocol_attributes_p2a return_values = {
 		.status = SCMI_SUCCESS,
-		.attributes = SCMI_CLOCK_PROTOCOL_ATTRIBUTES(1, clk_count),
+		.attributes = SCMI_CLOCK_PROTOCOL_ATTRIBUTES(0, clk_count),
 	};
 
 	if (msg->in_size) {
@@ -199,6 +199,11 @@ static void scmi_clock_rate_set(struct scmi_msg *msg)
 
 	if (in_args->clock_id >= plat_scmi_clock_count(msg->channel_id)) {
 		scmi_status_response(msg, SCMI_INVALID_PARAMETERS);
+		return;
+	}
+
+	if (in_args->flags & SCMI_CLOCK_RATE_SET_ASYNC_MASK) {
+		scmi_status_response(msg, SCMI_NOT_SUPPORTED);
 		return;
 	}
 
