@@ -20,8 +20,8 @@
 enum scmi_perf_domain_command_id {
 	SCMI_PERF_DOMAIN_ATTRIBUTES = 0x3,
 	SCMI_PERF_DESCRIBE_LEVELS = 0x4,
-	SCMI_PERF_LIMITS_SET = 0x5,		/* Not supported */
-	SCMI_PERF_LIMITS_GET = 0x6,		/* Not supported */
+	SCMI_PERF_LIMITS_SET = 0x5,
+	SCMI_PERF_LIMITS_GET = 0x6,
 	SCMI_PERF_LEVEL_SET = 0x7,
 	SCMI_PERF_LEVEL_GET = 0x8,
 	SCMI_PERF_NOTIFY_LIMITS = 0x9,		/* Not supported */
@@ -56,6 +56,7 @@ struct scmi_perf_attributes_a2p {
 };
 
 /* Macro for scmi_perf_domain_attributes_p2a:attributes */
+#define SCMI_PERF_DOMAIN_ATTRIBUTES_CAN_SET_LIMITS	BIT(31)
 #define SCMI_PERF_DOMAIN_ATTRIBUTES_CAN_SET_LEVEL	BIT(30)
 
 /* Macro for scmi_perf_domain_attributes_p2a:rate_limit */
@@ -102,6 +103,28 @@ struct scmi_perf_describe_levels_p2a {
 	int32_t status;
 	uint32_t num_levels;
 	struct scmi_perf_level perf_levels[];
+};
+
+/* Payloads for SCMI_PERF_LIMITS_SET, a 0 range value keeps the limit */
+struct scmi_perf_limits_set_a2p {
+	uint32_t domain_id;
+	uint32_t range_max;
+	uint32_t range_min;
+};
+
+struct scmi_perf_limits_set_p2a {
+	int32_t status;
+};
+
+/* Payloads for SCMI_PERF_LIMITS_GET */
+struct scmi_perf_limits_get_a2p {
+	uint32_t domain_id;
+};
+
+struct scmi_perf_limits_get_p2a {
+	int32_t status;
+	uint32_t range_max;
+	uint32_t range_min;
 };
 
 /* Payloads for SCMI_PERF_LEVEL_SET */
