@@ -461,6 +461,18 @@ size_t plat_scmi_perf_count(unsigned int channel_id);
  */
 void *plat_scmi_perf_statistics_buf(unsigned int channel_id, size_t *stats_len);
 
+/* Unit of the power cost reported by plat_scmi_perf_level_power_cost() */
+#define SCMI_PERF_POWER_SCALE_ABSTRACT	0
+#define SCMI_PERF_POWER_SCALE_MW	1
+#define SCMI_PERF_POWER_SCALE_UW	2
+
+/*
+ * Return the unit of the power cost of the performance levels
+ * @channel_id: SCMI channel ID
+ * Return one of SCMI_PERF_POWER_SCALE_*
+ */
+unsigned int plat_scmi_perf_power_scale(unsigned int channel_id);
+
 /*
  * Get performance domain string ID (aka name)
  * @channel_id: SCMI channel ID

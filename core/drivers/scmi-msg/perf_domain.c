@@ -33,6 +33,11 @@ void __weak *plat_scmi_perf_statistics_buf(unsigned int channel_id __unused,
 	return NULL;
 }
 
+unsigned int __weak plat_scmi_perf_power_scale(unsigned int channel_id __unused)
+{
+	return SCMI_PERF_POWER_SCALE_ABSTRACT;
+}
+
 const char __weak *plat_scmi_perf_domain_name(unsigned int channel_id __unused,
 					      unsigned int domain_id __unused)
 {
@@ -111,10 +116,10 @@ static void protocol_attributes(struct scmi_msg *msg)
 {
 	unsigned int channel_id = msg->channel_id;
 	size_t count = plat_scmi_perf_count(channel_id);
-	uint32_t power_in_mw = 0;
+	unsigned int power_scale = plat_scmi_perf_power_scale(channel_id);
 	struct scmi_perf_protocol_attributes_p2a return_values = {
 		.status = SCMI_SUCCESS,
-		.attributes = SCMI_PERF_PROTOCOL_ATTRIBUTES(power_in_mw, count),
+		.attributes = SCMI_PERF_PROTOCOL_ATTRIBUTES(power_scale, count),
 	};
 	void *stats_buf = NULL;
 	size_t stats_len = 0;

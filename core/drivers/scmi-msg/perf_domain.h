@@ -31,11 +31,13 @@ enum scmi_perf_domain_command_id {
 /*
  * Payloads for SCMI_PROTOCOL_ATTRIBUTES for Performance Domains
  */
-#define SCMI_PERF_ATTRIBUTES_POWER_MW_BIT	BIT(16)
+#define SCMI_PERF_ATTRIBUTES_POWER_SCALE_MASK	GENMASK_32(17, 16)
+#define SCMI_PERF_ATTRIBUTES_POWER_SCALE_POS	16
 #define SCMI_PERF_ATTRIBUTES_NUM_DOMAINS_MASK	GENMASK_32(15, 0)
 
-#define SCMI_PERF_PROTOCOL_ATTRIBUTES(_power_mw, _num_domains) \
-	(((_power_mw) ? SCMI_PERF_ATTRIBUTES_POWER_MW_BIT : 0) | \
+#define SCMI_PERF_PROTOCOL_ATTRIBUTES(_power_scale, _num_domains) \
+	((SHIFT_U32(_power_scale, SCMI_PERF_ATTRIBUTES_POWER_SCALE_POS) & \
+	  SCMI_PERF_ATTRIBUTES_POWER_SCALE_MASK) | \
 	 ((_num_domains) & SCMI_PERF_ATTRIBUTES_NUM_DOMAINS_MASK))
 
 struct scmi_perf_protocol_attributes_p2a {
