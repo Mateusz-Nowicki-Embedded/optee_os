@@ -224,8 +224,10 @@ static void scmi_clock_config_set(struct scmi_msg *msg)
 	int32_t status = SCMI_GENERIC_ERROR;
 	bool enable = false;
 	unsigned int clock_id = 0;
+	uint32_t state = 0;
 
-	if (msg->in_size != sizeof(*in_args)) {
+	if (msg->in_size != sizeof(*in_args) &&
+	    msg->in_size != sizeof(struct scmi_clock_config_set_v2_a2p)) {
 		scmi_status_response(msg, SCMI_PROTOCOL_ERROR);
 		return;
 	}
@@ -238,7 +240,28 @@ static void scmi_clock_config_set(struct scmi_msg *msg)
 	clock_id = confine_array_index(in_args->clock_id,
 				       plat_scmi_clock_count(msg->channel_id));
 
-	enable = in_args->attributes & SCMI_CLOCK_CONFIG_SET_ENABLE_MASK;
+	if (msg->in_size == sizeof(*in_args)) {
+		enable = in_args->attributes &
+			 SCMI_CLOCK_CONFIG_SET_ENABLE_MASK;
+	} else {
+		if (in_args->attributes & SCMI_CLOCK_CONFIG_SET_OEM_TYPE_MASK) {
+			scmi_status_response(msg, SCMI_NOT_SUPPORTED);
+			return;
+		}
+
+		state = in_args->attributes & SCMI_CLOCK_CONFIG_SET_STATE_MASK;
+		if (state == SCMI_CLOCK_CONFIG_STATE_RESERVED) {
+			scmi_status_response(msg, SCMI_INVALID_PARAMETERS);
+			return;
+		}
+
+		if (state == SCMI_CLOCK_CONFIG_STATE_UNCHANGED) {
+			scmi_status_response(msg, SCMI_SUCCESS);
+			return;
+		}
+
+		enable = state == SCMI_CLOCK_CONFIG_STATE_ENABLE;
+	}
 
 	status = plat_scmi_clock_set_state(msg->channel_id, clock_id, enable);
 

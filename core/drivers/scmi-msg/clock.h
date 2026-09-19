@@ -99,9 +99,24 @@ struct scmi_clock_rate_set_p2a {
 #define SCMI_CLOCK_CONFIG_SET_ENABLE_MASK \
 	BIT(SCMI_CLOCK_CONFIG_SET_ENABLE_POS)
 
+/* Clock state and OEM config type in the v2 attributes field */
+#define SCMI_CLOCK_CONFIG_SET_STATE_MASK	GENMASK_32(1, 0)
+#define SCMI_CLOCK_CONFIG_SET_OEM_TYPE_MASK	GENMASK_32(23, 16)
+
+#define SCMI_CLOCK_CONFIG_STATE_DISABLE		0
+#define SCMI_CLOCK_CONFIG_STATE_ENABLE		1
+#define SCMI_CLOCK_CONFIG_STATE_RESERVED	2
+#define SCMI_CLOCK_CONFIG_STATE_UNCHANGED	3
+
 struct scmi_clock_config_set_a2p {
 	uint32_t clock_id;
 	uint32_t attributes;
+};
+
+struct scmi_clock_config_set_v2_a2p {
+	uint32_t clock_id;
+	uint32_t attributes;
+	uint32_t oem_config_val;
 };
 
 struct scmi_clock_config_set_p2a {
