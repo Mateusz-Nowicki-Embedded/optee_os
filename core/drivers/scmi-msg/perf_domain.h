@@ -26,6 +26,7 @@ enum scmi_perf_domain_command_id {
 	SCMI_PERF_LEVEL_GET = 0x8,
 	SCMI_PERF_NOTIFY_LIMITS = 0x9,		/* Not supported */
 	SCMI_PERF_NOTIFY_LEVEL = 0xa,		/* Not supported */
+	SCMI_PERF_DOMAIN_NAME_GET = 0xc,
 };
 
 /*
@@ -58,6 +59,7 @@ struct scmi_perf_attributes_a2p {
 /* Macro for scmi_perf_domain_attributes_p2a:attributes */
 #define SCMI_PERF_DOMAIN_ATTRIBUTES_CAN_SET_LIMITS	BIT(31)
 #define SCMI_PERF_DOMAIN_ATTRIBUTES_CAN_SET_LEVEL	BIT(30)
+#define SCMI_PERF_DOMAIN_ATTRIBUTES_EXTENDED_NAME	BIT(26)
 
 /* Macro for scmi_perf_domain_attributes_p2a:rate_limit */
 #define SCMI_PERF_DOMAIN_RATE_LIMIT_MASK	GENMASK_32(15, 0)
@@ -125,6 +127,19 @@ struct scmi_perf_limits_get_p2a {
 	int32_t status;
 	uint32_t range_max;
 	uint32_t range_min;
+};
+
+/* Payloads for SCMI_PERF_DOMAIN_NAME_GET */
+#define SCMI_PERF_DOMAIN_EXTENDED_NAME_SZ	64
+
+struct scmi_perf_domain_name_get_a2p {
+	uint32_t domain_id;
+};
+
+struct scmi_perf_domain_name_get_p2a {
+	int32_t status;
+	uint32_t flags;
+	char name[SCMI_PERF_DOMAIN_EXTENDED_NAME_SZ];
 };
 
 /* Payloads for SCMI_PERF_LEVEL_SET */

@@ -345,7 +345,14 @@ static void scmi_perf_domain_attributes(struct scmi_msg *msg)
 		return;
 	}
 
-	COPY_NAME_IDENTIFIER(return_values.name, name);
+	if (strlen(name) >= sizeof(return_values.name)) {
+		memcpy(return_values.name, name,
+		       sizeof(return_values.name) - 1);
+		return_values.attributes |=
+			SCMI_PERF_DOMAIN_ATTRIBUTES_EXTENDED_NAME;
+	} else {
+		COPY_NAME_IDENTIFIER(return_values.name, name);
+	}
 
 	/*
 	 * .rate_limit and .sustained_perf_level are
@@ -354,6 +361,36 @@ static void scmi_perf_domain_attributes(struct scmi_msg *msg)
 
 	VERBOSE_MSG("channel %u: domain %u: name \"%s\"", msg->channel_id,
 		    domain_id, name);
+
+	scmi_write_response(msg, &return_values, sizeof(return_values));
+}
+
+static void scmi_perf_domain_name_get(struct scmi_msg *msg)
+{
+	const struct scmi_perf_domain_name_get_a2p *in_args = (void *)msg->in;
+	/* It is safe to read in_args->domain_id before sanitize_message() */
+	unsigned int domain_id = in_args->domain_id;
+	int32_t res = SCMI_GENERIC_ERROR;
+	struct scmi_perf_domain_name_get_p2a return_values = {
+		.status = SCMI_SUCCESS,
+	};
+	const char *name = NULL;
+
+	VERBOSE_MSG("channel %u: domain %u", msg->channel_id, domain_id);
+
+	res = sanitize_message(msg, &domain_id, sizeof(*in_args));
+	if (res) {
+		scmi_status_response(msg, res);
+		return;
+	}
+
+	name = plat_scmi_perf_domain_name(msg->channel_id, domain_id);
+	if (!name) {
+		scmi_status_response(msg, SCMI_NOT_FOUND);
+		return;
+	}
+
+	COPY_NAME_IDENTIFIER(return_values.name, name);
 
 	scmi_write_response(msg, &return_values, sizeof(return_values));
 }
@@ -611,6 +648,7 @@ static const scmi_msg_handler_t scmi_perf_handler_table[] = {
 	[SCMI_PERF_LIMITS_SET] = scmi_perf_limits_set,
 	[SCMI_PERF_LIMITS_GET] = scmi_perf_limits_get,
 	[SCMI_PERF_LEVEL_SET] = scmi_perf_level_set,
+	[SCMI_PERF_DOMAIN_NAME_GET] = scmi_perf_domain_name_get,
 	[SCMI_PERF_LEVEL_GET] = scmi_perf_level_get,
 };
 
