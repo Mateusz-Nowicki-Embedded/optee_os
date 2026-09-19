@@ -6,6 +6,7 @@
 #include <assert.h>
 #include <drivers/stm32_shared_io.h>
 #include <io.h>
+#include <kernel/delay.h>
 #include <kernel/panic.h>
 #include <mm/core_memprot.h>
 #include <stm32_sysconf.h>
@@ -15,6 +16,20 @@
 
 #define SYSCON_OFFSET(id)	((id) & GENMASK_32(15, 0))
 #define SYSCON_BANK(id)		(((id) & GENMASK_32(31, 16)) >> 16)
+
+/* IO compensation cell control registers (SYSCFG_VDDxCCCR) */
+#define SYSCFG_CCCR_CS				BIT(9)
+#define SYSCFG_CCCR_EN				BIT(8)
+#define SYSCFG_CCCR_RAPSRC_MASK			GENMASK_32(7, 4)
+#define SYSCFG_CCCR_RAPSRC_SHIFT		U(4)
+#define SYSCFG_CCCR_RANSRC_MASK			GENMASK_32(3, 0)
+
+/* IO compensation cell status registers (SYSCFG_VDDxCCSR) */
+#define SYSCFG_CCSR_READY			BIT(8)
+#define SYSCFG_CCSR_APSRC_MASK			GENMASK_32(7, 4)
+#define SYSCFG_CCSR_ANSRC_MASK			GENMASK_32(3, 0)
+
+#define SYSCFG_CCSR_READY_TIMEOUT_US		U(1000)
 
 #define SYSCFG_OCTOSPIAMCR			SYSCON_ID(SYSCON_SYSCFG, \
 							  0x2C00U)
@@ -39,6 +54,15 @@ struct io_pa_va syscfg_base[SYSCON_NB_BANKS] = {
 	{ .pa = A35SSC_BASE }
 };
 
+/* CCSR register is at CCCR offset + 4 */
+static const uint32_t syscfg_cccr_offset[SYSCFG_NB_IO_ID] = {
+	[SYSCFG_VDDIO1_ID] = SYSCON_ID(SYSCON_SYSCFG, U(0x4020)),
+	[SYSCFG_VDDIO2_ID] = SYSCON_ID(SYSCON_SYSCFG, U(0x4018)),
+	[SYSCFG_VDDIO3_ID] = SYSCON_ID(SYSCON_SYSCFG, U(0x4000)),
+	[SYSCFG_VDDIO4_ID] = SYSCON_ID(SYSCON_SYSCFG, U(0x4008)),
+	[SYSCFG_VDD_IO_ID] = SYSCON_ID(SYSCON_SYSCFG, U(0x4010)),
+};
+
 static vaddr_t stm32mp_syscfg_base(uint32_t id)
 {
 	uint32_t bank = SYSCON_BANK(id);
@@ -58,6 +82,80 @@ void stm32mp_syscfg_write(uint32_t id, uint32_t value, uint32_t bitmsk)
 uint32_t stm32mp_syscfg_read(uint32_t id)
 {
 	return io_read32(stm32mp_syscfg_base(id) + SYSCON_OFFSET(id));
+}
+
+static vaddr_t syscfg_cccr_addr(enum syscfg_io_ids id)
+{
+	assert(id < SYSCFG_NB_IO_ID);
+
+	return stm32mp_syscfg_base(SYSCON_SYSCFG) +
+	       SYSCON_OFFSET(syscfg_cccr_offset[id]);
+}
+
+TEE_Result stm32mp25_syscfg_enable_iocomp(enum syscfg_io_ids id)
+{
+	vaddr_t cccr_addr = syscfg_cccr_addr(id);
+	vaddr_t ccsr_addr = cccr_addr + 4;
+	uint64_t timeout_ref = 0;
+
+	FMSG("Enable IO comp for id %u", id);
+
+	if (io_read32(ccsr_addr) & SYSCFG_CCSR_READY) {
+		io_clrbits32(cccr_addr, SYSCFG_CCCR_CS);
+		return TEE_SUCCESS;
+	}
+
+	io_setbits32(cccr_addr, SYSCFG_CCCR_EN);
+
+	timeout_ref = timeout_init_us(SYSCFG_CCSR_READY_TIMEOUT_US);
+	while (!(io_read32(ccsr_addr) & SYSCFG_CCSR_READY))
+		if (timeout_elapsed(timeout_ref))
+			break;
+
+	if (!(io_read32(ccsr_addr) & SYSCFG_CCSR_READY)) {
+		EMSG("IO compensation cell %u not ready", id);
+		return TEE_ERROR_GENERIC;
+	}
+
+	io_clrbits32(cccr_addr, SYSCFG_CCCR_CS);
+
+	return TEE_SUCCESS;
+}
+
+TEE_Result stm32mp25_syscfg_disable_iocomp(enum syscfg_io_ids id)
+{
+	vaddr_t cccr_addr = syscfg_cccr_addr(id);
+	vaddr_t ccsr_addr = cccr_addr + 4;
+	uint32_t value = 0;
+
+	FMSG("Disable IO comp for id %u", id);
+
+	if (!(io_read32(ccsr_addr) & SYSCFG_CCSR_READY))
+		return TEE_SUCCESS;
+
+	/* Keep the last computed codes while the cell is disabled */
+	value = io_read32(ccsr_addr) &
+		(SYSCFG_CCSR_APSRC_MASK | SYSCFG_CCSR_ANSRC_MASK);
+	io_clrsetbits32(cccr_addr,
+			SYSCFG_CCCR_RAPSRC_MASK | SYSCFG_CCCR_RANSRC_MASK,
+			value);
+	io_setbits32(cccr_addr, SYSCFG_CCCR_CS);
+	io_clrbits32(cccr_addr, SYSCFG_CCCR_EN);
+
+	return TEE_SUCCESS;
+}
+
+void stm32mp25_syscfg_fixed_iocomp(enum syscfg_io_ids id, uint32_t pmos,
+				   uint32_t nmos)
+{
+	vaddr_t cccr_addr = syscfg_cccr_addr(id);
+	uint32_t value = 0;
+
+	FMSG("Fixed IO comp for id %u", id);
+
+	value = ((pmos << SYSCFG_CCCR_RAPSRC_SHIFT) & SYSCFG_CCCR_RAPSRC_MASK) |
+		(nmos & SYSCFG_CCCR_RANSRC_MASK);
+	io_write32(cccr_addr, value);
 }
 
 void stm32mp25_syscfg_set_safe_reset(bool status)

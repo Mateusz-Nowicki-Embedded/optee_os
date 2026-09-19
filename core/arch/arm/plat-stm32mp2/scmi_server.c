@@ -7,16 +7,21 @@
 #include <compiler.h>
 #include <confine_array_index.h>
 #include <drivers/clk.h>
+#include <drivers/regulator.h>
 #include <drivers/rstctrl.h>
 #include <drivers/scmi-msg.h>
 #include <drivers/scmi.h>
 #include <drivers/stm32mp2_rcc_util.h>
 #include <drivers/stm32mp_dt_bindings.h>
 #include <initcall.h>
+#include <kernel/dt.h>
+#include <libfdt.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <trace.h>
 
 #define TIMEOUT_US_1MS		1000
+#define SCMI_VOLTD_MAX_COUNT	64
 
 struct stm32_scmi_clk {
 	unsigned long clock_id;
@@ -162,6 +167,12 @@ static struct stm32_scmi_rd stm32_scmi_reset_domain[] = {
 	RESET_CELL(RST_SCMI_OSPI2DLL, OSPI2DLL_R, "ospi2_ddl"),
 };
 
+struct stm32_scmi_voltd {
+	const char *name;
+	struct regulator *regulator;
+	bool enabled;
+};
+
 struct channel_resources {
 	struct scmi_msg_channel *channel;
 	const char *agent_name;
@@ -169,9 +180,12 @@ struct channel_resources {
 	size_t clock_count;
 	struct stm32_scmi_rd *rd;
 	size_t rd_count;
+	struct stm32_scmi_voltd *voltd;
+	size_t voltd_count;
 };
 
-static const struct channel_resources scmi_channel[] = {
+/* Voltage domains are filled from DT at init, see scmi_voltd_init_from_dt() */
+static struct channel_resources scmi_channel[] = {
 	[0] = {
 		.channel = &(struct scmi_msg_channel){ },
 		.agent_name = "a35-nsec",
@@ -207,6 +221,7 @@ struct scmi_msg_channel *plat_scmi_get_channel(unsigned int channel_id)
 static const uint8_t protocol_list[] = {
 	SCMI_PROTOCOL_ID_CLOCK,
 	SCMI_PROTOCOL_ID_RESET_DOMAIN,
+	SCMI_PROTOCOL_ID_VOLTAGE_DOMAIN,
 	0,
 };
 
@@ -327,10 +342,282 @@ int32_t plat_scmi_rd_set_state(unsigned int channel_id, unsigned int scmi_id,
 	return status;
 }
 
+static struct stm32_scmi_voltd *find_voltd(unsigned int channel_id,
+					   unsigned int scmi_id)
+{
+	const struct channel_resources *res = find_resource(channel_id);
+	unsigned int confined_id = 0;
+
+	if (!res || scmi_id >= res->voltd_count)
+		return NULL;
+
+	confined_id = confine_array_index(scmi_id, res->voltd_count);
+
+	if (!res->voltd[confined_id].regulator)
+		return NULL;
+
+	return res->voltd + confined_id;
+}
+
+size_t plat_scmi_voltd_count(unsigned int channel_id)
+{
+	const struct channel_resources *res = find_resource(channel_id);
+	const size_t count = res ? res->voltd_count : 0;
+
+	return count;
+}
+
+const char *plat_scmi_voltd_get_name(unsigned int channel_id,
+				     unsigned int scmi_id)
+{
+	const struct stm32_scmi_voltd *voltd = find_voltd(channel_id, scmi_id);
+	const char *name = voltd ? voltd->name : NULL;
+
+	return name;
+}
+
+int32_t plat_scmi_voltd_levels_array(unsigned int channel_id,
+				     unsigned int scmi_id, size_t start_index,
+				     long *out_levels, size_t *nb_elts)
+{
+	const struct stm32_scmi_voltd *voltd = find_voltd(channel_id, scmi_id);
+	struct regulator_voltages_desc *desc = NULL;
+	TEE_Result res = TEE_ERROR_GENERIC;
+	const int *levels = NULL;
+	size_t n = 0;
+
+	if (!voltd)
+		return SCMI_NOT_FOUND;
+
+	res = regulator_supported_voltages(voltd->regulator, &desc, &levels);
+	if (res == TEE_ERROR_NOT_SUPPORTED)
+		return SCMI_NOT_SUPPORTED;
+	if (res)
+		return SCMI_GENERIC_ERROR;
+
+	/* Triplet min/max/step is served by plat_scmi_voltd_levels_by_step() */
+	if (!desc || desc->type != VOLTAGE_TYPE_FULL_LIST)
+		return SCMI_NOT_SUPPORTED;
+
+	if (start_index >= desc->num_levels)
+		return SCMI_OUT_OF_RANGE;
+
+	if (!*nb_elts) {
+		*nb_elts = desc->num_levels - start_index;
+		return SCMI_SUCCESS;
+	}
+
+	*nb_elts = MIN(*nb_elts, desc->num_levels - start_index);
+	for (n = 0; n < *nb_elts; n++)
+		out_levels[n] = levels[start_index + n];
+
+	return SCMI_SUCCESS;
+}
+
+int32_t plat_scmi_voltd_levels_by_step(unsigned int channel_id,
+				       unsigned int scmi_id, long *min_max_step)
+{
+	const struct stm32_scmi_voltd *voltd = find_voltd(channel_id, scmi_id);
+	struct regulator_voltages_desc *desc = NULL;
+	TEE_Result res = TEE_ERROR_GENERIC;
+	const int *levels = NULL;
+
+	if (!voltd)
+		return SCMI_NOT_FOUND;
+
+	res = regulator_supported_voltages(voltd->regulator, &desc, &levels);
+	if (res == TEE_ERROR_NOT_SUPPORTED)
+		return SCMI_NOT_SUPPORTED;
+	if (res)
+		return SCMI_GENERIC_ERROR;
+
+	if (!desc || desc->type != VOLTAGE_TYPE_INCREMENT)
+		return SCMI_NOT_SUPPORTED;
+
+	min_max_step[0] = levels[0];
+	min_max_step[1] = levels[1];
+	min_max_step[2] = levels[2];
+
+	return SCMI_SUCCESS;
+}
+
+int32_t plat_scmi_voltd_get_level(unsigned int channel_id, unsigned int scmi_id,
+				  long *level_uv)
+{
+	const struct stm32_scmi_voltd *voltd = find_voltd(channel_id, scmi_id);
+
+	if (!voltd)
+		return SCMI_NOT_FOUND;
+
+	*level_uv = regulator_get_voltage(voltd->regulator);
+
+	return SCMI_SUCCESS;
+}
+
+int32_t plat_scmi_voltd_set_level(unsigned int channel_id, unsigned int scmi_id,
+				  long level_uv)
+{
+	const struct stm32_scmi_voltd *voltd = find_voltd(channel_id, scmi_id);
+	int32_t status = SCMI_SUCCESS;
+
+	FMSG("SCMI voltd %u level %ld", scmi_id, level_uv);
+
+	if (!voltd)
+		status = SCMI_NOT_FOUND;
+	else if (level_uv < INT_MIN || level_uv > INT_MAX)
+		status = SCMI_OUT_OF_RANGE;
+	else if (regulator_set_voltage(voltd->regulator, level_uv))
+		status = SCMI_GENERIC_ERROR;
+
+	return status;
+}
+
+int32_t plat_scmi_voltd_get_config(unsigned int channel_id,
+				   unsigned int scmi_id, uint32_t *config)
+{
+	const struct stm32_scmi_voltd *voltd = find_voltd(channel_id, scmi_id);
+
+	if (!voltd)
+		return SCMI_NOT_FOUND;
+
+	if (voltd->enabled)
+		*config = SCMI_VOLTAGE_DOMAIN_CONFIG_ARCH_ON;
+	else
+		*config = SCMI_VOLTAGE_DOMAIN_CONFIG_ARCH_OFF;
+
+	return SCMI_SUCCESS;
+}
+
+int32_t plat_scmi_voltd_set_config(unsigned int channel_id,
+				   unsigned int scmi_id, uint32_t config)
+{
+	struct stm32_scmi_voltd *voltd = find_voltd(channel_id, scmi_id);
+	int32_t status = SCMI_SUCCESS;
+
+	FMSG("SCMI voltd %u config %#"PRIx32, scmi_id, config);
+
+	if (!voltd) {
+		status = SCMI_NOT_FOUND;
+	} else if (config == SCMI_VOLTAGE_DOMAIN_CONFIG_ARCH_ON) {
+		if (!voltd->enabled) {
+			if (regulator_enable(voltd->regulator))
+				status = SCMI_GENERIC_ERROR;
+			else
+				voltd->enabled = true;
+		}
+	} else if (config == SCMI_VOLTAGE_DOMAIN_CONFIG_ARCH_OFF) {
+		if (voltd->enabled) {
+			if (regulator_disable(voltd->regulator))
+				status = SCMI_GENERIC_ERROR;
+			else
+				voltd->enabled = false;
+		}
+	} else {
+		status = SCMI_INVALID_PARAMETERS;
+	}
+
+	return status;
+}
+
+/*
+ * Voltage domains exposed to an agent are listed in a DT node:
+ *
+ *	scmi-regulators {
+ *		compatible = "st,scmi-regulator-consumer";
+ *		scmi-channel-id = <0>;
+ *		regulator@N {
+ *			reg = <N>;
+ *			voltd-supply = <&some_regulator>;
+ *		};
+ *	};
+ */
+static TEE_Result scmi_voltd_init_from_dt(const void *fdt, int node)
+{
+	struct channel_resources *res = NULL;
+	struct stm32_scmi_voltd *voltd = NULL;
+	uint32_t channel_id = 0;
+	size_t count = 0;
+	int subnode = 0;
+
+	if (fdt_read_uint32(fdt, node, "scmi-channel-id", &channel_id) ||
+	    channel_id >= ARRAY_SIZE(scmi_channel)) {
+		EMSG("scmi: %s: invalid scmi-channel-id",
+		     fdt_get_name(fdt, node, NULL));
+		return TEE_ERROR_BAD_PARAMETERS;
+	}
+	res = scmi_channel + channel_id;
+
+	fdt_for_each_subnode(subnode, fdt, node) {
+		paddr_t reg = fdt_reg_base_address(fdt, subnode);
+
+		if (reg == DT_INFO_INVALID_REG || reg >= SCMI_VOLTD_MAX_COUNT)
+			return TEE_ERROR_BAD_PARAMETERS;
+		count = MAX(count, (size_t)reg + 1);
+	}
+
+	if (!count)
+		return TEE_SUCCESS;
+
+	voltd = calloc(count, sizeof(*voltd));
+	if (!voltd)
+		return TEE_ERROR_OUT_OF_MEMORY;
+
+	fdt_for_each_subnode(subnode, fdt, node) {
+		size_t id = fdt_reg_base_address(fdt, subnode);
+		struct regulator *regulator = NULL;
+		TEE_Result ret = TEE_SUCCESS;
+
+		ret = regulator_dt_get_supply(fdt, subnode, "voltd",
+					      &regulator);
+		if (ret) {
+			EMSG("scmi: voltd %zu: no supply (%#" PRIx32 ")", id,
+			     ret);
+			continue;
+		}
+
+		/* Keep boot-on supplies up until the agent takes them over */
+		if (regulator_is_always_on(regulator) ||
+		    regulator->flags & REGULATOR_BOOT_ON) {
+			if (regulator_enable(regulator)) {
+				EMSG("scmi: voltd %zu %s: enable failed", id,
+				     regulator_name(regulator));
+				continue;
+			}
+			voltd[id].enabled = true;
+		}
+
+		voltd[id].regulator = regulator;
+		voltd[id].name = regulator_name(regulator);
+
+		DMSG("SCMI voltd %zu: %s %duV%s", id, voltd[id].name,
+		     regulator_get_voltage(regulator),
+		     voltd[id].enabled ? " enabled" : "");
+	}
+
+	res->voltd = voltd;
+	res->voltd_count = count;
+
+	return TEE_SUCCESS;
+}
+
 static TEE_Result stm32mp2_init_scmi_server(void)
 {
+	const void *fdt = get_secure_dt();
+	int node = -1;
 	size_t i = 0;
 	size_t j = 0;
+
+	if (fdt) {
+		while (true) {
+			node = fdt_node_offset_by_compatible(fdt, node,
+							     "st,scmi-regulator-consumer");
+			if (node < 0)
+				break;
+
+			if (scmi_voltd_init_from_dt(fdt, node))
+				panic();
+		}
+	}
 
 	for (i = 0; i < ARRAY_SIZE(scmi_channel); i++) {
 		const struct channel_resources *res = scmi_channel + i;

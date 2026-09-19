@@ -8,6 +8,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <tee_api_types.h>
 #include <util.h>
 
 /* syscon banks */
@@ -117,6 +118,37 @@ void stm32mp_syscfg_write(uint32_t id, uint32_t value, uint32_t bitmsk);
  * @id: SYSCONF register ID, processed with SYSCON_ID() macro
  */
 uint32_t stm32mp_syscfg_read(uint32_t id);
+
+/* IO compensation cell identifiers */
+enum syscfg_io_ids {
+	SYSCFG_VDDIO1_ID,
+	SYSCFG_VDDIO2_ID,
+	SYSCFG_VDDIO3_ID,
+	SYSCFG_VDDIO4_ID,
+	SYSCFG_VDD_IO_ID,
+	SYSCFG_NB_IO_ID
+};
+
+/*
+ * Enable an IO compensation cell and use its computed codes
+ * @id: IO compensation cell identifier
+ */
+TEE_Result stm32mp25_syscfg_enable_iocomp(enum syscfg_io_ids id);
+
+/*
+ * Disable an IO compensation cell, keeping the last computed codes
+ * @id: IO compensation cell identifier
+ */
+TEE_Result stm32mp25_syscfg_disable_iocomp(enum syscfg_io_ids id);
+
+/*
+ * Disable an IO compensation cell and use fixed codes
+ * @id: IO compensation cell identifier
+ * @pmos: PMOS compensation code
+ * @nmos: NMOS compensation code
+ */
+void stm32mp25_syscfg_fixed_iocomp(enum syscfg_io_ids id, uint32_t pmos,
+				   uint32_t nmos);
 
 /*
  * Set safe reset state
