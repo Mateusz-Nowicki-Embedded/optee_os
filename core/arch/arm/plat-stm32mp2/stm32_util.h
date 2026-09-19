@@ -17,6 +17,9 @@
 
 bool stm32mp_allow_probe_shared_device(const void *fdt, int node);
 
+/* Return true if the SoC part number supports the OPP set @opp_id */
+bool stm32mp_supports_cpu_opp(uint32_t opp_id);
+
 /* Print a message and reset the system */
 void __noreturn do_reset(const char *str);
 

@@ -111,5 +111,6 @@
 /* BSEC OTP resources */
 #define STM32MP2_OTP_MAX_ID		0x16FU
 #define STM32MP2_UPPER_OTP_START	0x100U
+#define OTP_PART_NUMBER			9U
 
 #endif /*PLATFORM_CONFIG_H*/

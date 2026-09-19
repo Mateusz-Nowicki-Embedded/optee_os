@@ -7,6 +7,7 @@
 #include <console.h>
 #include <drivers/gic.h>
 #include <drivers/rstctrl.h>
+#include <drivers/stm32_bsec.h>
 #include <drivers/stm32_rif.h>
 #include <drivers/stm32_serc.h>
 #include <drivers/stm32_uart.h>
@@ -212,4 +213,19 @@ void stm32mp_get_bsec3_static_cfg(struct stm32_bsec3_static_cfg *cfg)
 	cfg->base = BSEC3_BASE;
 	cfg->upper_start = STM32MP2_UPPER_OTP_START;
 	cfg->max_id = STM32MP2_OTP_MAX_ID;
+}
+
+/* OTP9 RPN_CODING bit 31 flags the parts qualified for the overdrive OPP */
+bool stm32mp_supports_cpu_opp(uint32_t opp_id)
+{
+	uint32_t part_number = 0;
+	uint32_t id = BIT(0);
+
+	if (!IS_ENABLED(CFG_STM32_BSEC3) ||
+	    stm32_bsec_read_otp(&part_number, OTP_PART_NUMBER))
+		DMSG("Part number unknown, nominal OPP only");
+	else if (part_number & BIT(31))
+		id = BIT(1);
+
+	return (opp_id & id) == id;
 }

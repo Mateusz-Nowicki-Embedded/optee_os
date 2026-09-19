@@ -113,6 +113,11 @@
 	};
 };
 
+&cpu0 {
+	cpu-supply = <&vddcpu>;
+	operating-points-v2 = <&cpu0_opp_table>;
+};
+
 &hpdma1 {
 	status = "okay";
 };
@@ -351,6 +356,24 @@
 &iwdg1 {
 	timeout-sec = <32>;
 	status = "okay";
+};
+
+&rcc {
+	st,clk_opp {
+		st,ck_cpu1 {
+			cfg_1 {
+				hz = <1500000000>;
+				st,clksrc = <0>;
+				st,pll = <&pll1_cfg_1500Mhz>;
+			};
+
+			cfg_2 {
+				hz = <1200000000>;
+				st,clksrc = <0>;
+				st,pll = <&pll1_cfg_1200Mhz>;
+			};
+		};
+	};
 };
 
 &risaf2 {

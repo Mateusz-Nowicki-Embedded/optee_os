@@ -11,6 +11,7 @@
 #include <drivers/rstctrl.h>
 #include <drivers/scmi-msg.h>
 #include <drivers/scmi.h>
+#include <drivers/stm32_cpu_opp.h>
 #include <drivers/stm32mp2_rcc_util.h>
 #include <drivers/stm32mp_dt_bindings.h>
 #include <initcall.h>
@@ -173,6 +174,14 @@ struct stm32_scmi_voltd {
 	bool enabled;
 };
 
+struct stm32_scmi_perfd {
+	const char *name;
+};
+
+static const struct stm32_scmi_perfd stm32_scmi_perf_domain[] = {
+	[0] = { .name = "cpu0" },
+};
+
 struct channel_resources {
 	struct scmi_msg_channel *channel;
 	const char *agent_name;
@@ -182,6 +191,8 @@ struct channel_resources {
 	size_t rd_count;
 	struct stm32_scmi_voltd *voltd;
 	size_t voltd_count;
+	const struct stm32_scmi_perfd *perfd;
+	size_t perfd_count;
 };
 
 /* Voltage domains are filled from DT at init, see scmi_voltd_init_from_dt() */
@@ -193,6 +204,8 @@ static struct channel_resources scmi_channel[] = {
 		.clock_count = ARRAY_SIZE(stm32_scmi_clock),
 		.rd = stm32_scmi_reset_domain,
 		.rd_count = ARRAY_SIZE(stm32_scmi_reset_domain),
+		.perfd = stm32_scmi_perf_domain,
+		.perfd_count = ARRAY_SIZE(stm32_scmi_perf_domain),
 	},
 };
 
@@ -219,6 +232,9 @@ struct scmi_msg_channel *plat_scmi_get_channel(unsigned int channel_id)
 }
 
 static const uint8_t protocol_list[] = {
+#ifdef CFG_SCMI_MSG_PERF_DOMAIN
+	SCMI_PROTOCOL_ID_PERF,
+#endif
 	SCMI_PROTOCOL_ID_CLOCK,
 	SCMI_PROTOCOL_ID_RESET_DOMAIN,
 	SCMI_PROTOCOL_ID_VOLTAGE_DOMAIN,
@@ -518,6 +534,125 @@ int32_t plat_scmi_voltd_set_config(unsigned int channel_id,
 
 	return status;
 }
+
+#ifdef CFG_SCMI_MSG_PERF_DOMAIN
+static const struct stm32_scmi_perfd *find_perfd(unsigned int channel_id,
+						 unsigned int domain_id)
+{
+	const struct channel_resources *res = find_resource(channel_id);
+	unsigned int confined_id = 0;
+
+	if (!res || domain_id >= res->perfd_count)
+		return NULL;
+
+	confined_id = confine_array_index(domain_id, res->perfd_count);
+
+	return res->perfd + confined_id;
+}
+
+size_t plat_scmi_perf_count(unsigned int channel_id)
+{
+	const struct channel_resources *res = find_resource(channel_id);
+
+	if (!res || !stm32_cpu_opp_count())
+		return 0;
+
+	return res->perfd_count;
+}
+
+const char *plat_scmi_perf_domain_name(unsigned int channel_id,
+				       unsigned int domain_id)
+{
+	const struct stm32_scmi_perfd *perfd = NULL;
+
+	perfd = find_perfd(channel_id, domain_id);
+
+	return perfd ? perfd->name : NULL;
+}
+
+int32_t plat_scmi_perf_sustained_freq(unsigned int channel_id,
+				      unsigned int domain_id,
+				      unsigned int *freq)
+{
+	if (!find_perfd(channel_id, domain_id))
+		return SCMI_NOT_FOUND;
+
+	*freq = stm32_cpu_opp_sustained_level();
+
+	return SCMI_SUCCESS;
+}
+
+int32_t plat_scmi_perf_level_latency(unsigned int channel_id,
+				     unsigned int domain_id,
+				     unsigned int level __unused,
+				     unsigned int *latency)
+{
+	if (!find_perfd(channel_id, domain_id))
+		return SCMI_NOT_FOUND;
+
+	*latency = CFG_STM32MP_OPP_LATENCY_US;
+
+	return SCMI_SUCCESS;
+}
+
+int32_t plat_scmi_perf_levels_array(unsigned int channel_id,
+				    unsigned int domain_id, size_t start_index,
+				    unsigned int *levels, size_t *nb_elts)
+{
+	size_t full_count = stm32_cpu_opp_count();
+	size_t out_count = 0;
+	size_t n = 0;
+
+	if (!find_perfd(channel_id, domain_id))
+		return SCMI_NOT_FOUND;
+
+	if (SUB_OVERFLOW(full_count, start_index, &out_count))
+		return SCMI_OUT_OF_RANGE;
+
+	if (!levels) {
+		*nb_elts = out_count;
+		return SCMI_SUCCESS;
+	}
+
+	out_count = MIN(out_count, *nb_elts);
+	for (n = 0; n < out_count; n++)
+		levels[n] = stm32_cpu_opp_level(start_index + n);
+
+	*nb_elts = out_count;
+
+	return SCMI_SUCCESS;
+}
+
+int32_t plat_scmi_perf_level_get(unsigned int channel_id,
+				 unsigned int domain_id, unsigned int *level)
+{
+	if (!find_perfd(channel_id, domain_id))
+		return SCMI_NOT_FOUND;
+
+	if (stm32_cpu_opp_read_level(level))
+		return SCMI_GENERIC_ERROR;
+
+	return SCMI_SUCCESS;
+}
+
+int32_t plat_scmi_perf_level_set(unsigned int channel_id,
+				 unsigned int domain_id, unsigned int level)
+{
+	FMSG("SCMI perf %u level %u", domain_id, level);
+
+	if (!find_perfd(channel_id, domain_id))
+		return SCMI_NOT_FOUND;
+
+	switch (stm32_cpu_opp_set_level(level)) {
+	case TEE_SUCCESS:
+		return SCMI_SUCCESS;
+	case TEE_ERROR_BAD_PARAMETERS:
+		return SCMI_OUT_OF_RANGE;
+	default:
+		return SCMI_GENERIC_ERROR;
+	}
+}
+#endif /* CFG_SCMI_MSG_PERF_DOMAIN */
 
 /*
  * Voltage domains exposed to an agent are listed in a DT node:

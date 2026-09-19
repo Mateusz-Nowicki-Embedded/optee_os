@@ -1548,6 +1548,7 @@ static void clk_stm32_pll1_init(struct clk_stm32_priv *priv,
 {
 	int sel = (pll_conf->src & MUX_SEL_MASK) >> MUX_SEL_SHIFT;
 	unsigned long refclk = 0;
+	uint64_t timeout = 0;
 
 	stm32mp2_a35_ss_on_bypass();
 
@@ -1562,6 +1563,14 @@ static void clk_stm32_pll1_init(struct clk_stm32_priv *priv,
 	 */
 	if (refclk < PLL_REFCLK_MIN)
 		panic();
+
+	/* Dividers must not change while the PLL is enabled */
+	stm32mp_syscfg_write(CA35SS_SSC_PLL_EN, 0, CA35SS_SSC_PLL_EN_PLL_EN);
+	timeout = timeout_init_us(PLLRDY_TIMEOUT);
+	while (stm32mp_syscfg_read(CA35SS_SSC_PLL_EN) &
+	       CA35SS_SSC_PLL_EN_LOCKP_MASK)
+		if (timeout_elapsed(timeout))
+			panic("PLL1 still locked");
 
 	stm32mp2_a35_pll1_config(pll_conf->cfg[FBDIV],
 				 pll_conf->cfg[REFDIV],
@@ -2494,8 +2503,22 @@ static size_t clk_cpu1_get_parent(struct clk *clk __unused)
 		CA35SS_SSC_CHGCLKREQ_ARM_CHGCLKACK_SHIFT;
 }
 
+static TEE_Result clk_cpu1_set_parent(struct clk *clk, size_t pidx)
+{
+	if (pidx == 1) {
+		stm32mp2_a35_ss_on_bypass();
+		return TEE_SUCCESS;
+	}
+
+	if (clk_cpu1_get_parent(clk) && stm32mp2_a35_pll1_start())
+		return TEE_ERROR_GENERIC;
+
+	return TEE_SUCCESS;
+}
+
 static const struct clk_ops clk_stm32_cpu1_ops = {
 	.get_parent = clk_cpu1_get_parent,
+	.set_parent = clk_cpu1_set_parent,
 };
 
 #define APB_DIV_MASK	GENMASK_32(2, 0)

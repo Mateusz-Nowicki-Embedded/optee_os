@@ -20,7 +20,12 @@
 #include <kernel/mutex.h>
 #include <kernel/panic.h>
 #include <kernel/pm.h>
+#include <kernel/thread.h>
 #include <libfdt.h>
+#if defined(CFG_STM32MP21) || defined(CFG_STM32MP23) || defined(CFG_STM32MP25)
+#include <stm32_sysconf.h>
+#include <stm32mp_pm.h>
+#endif
 #include <stm32_util.h>
 #include <trace.h>
 
@@ -76,10 +81,12 @@ unsigned int stm32_cpu_opp_level(unsigned int opp)
 	return cpu_opp.dvfs[opp].freq_khz;
 }
 
+#if defined(CFG_STM32MP13) || defined(CFG_STM32MP15)
 static TEE_Result set_opp_clk_rate(unsigned int opp)
 {
 	return clk_set_rate(cpu_opp.clock, cpu_opp.dvfs[opp].freq_khz * 1000);
 }
+#endif
 
 static TEE_Result set_opp_voltage(unsigned int opp)
 {
@@ -146,6 +153,7 @@ static bool opp_voltage_is_supported(struct regulator *regul, uint32_t *volt_uv)
 	return true;
 }
 
+#if defined(CFG_STM32MP13) || defined(CFG_STM32MP15)
 static TEE_Result set_clock_then_voltage(unsigned int opp)
 {
 	TEE_Result res = TEE_ERROR_GENERIC;
@@ -211,10 +219,133 @@ static TEE_Result set_voltage_then_clock(unsigned int opp)
 
 	return TEE_SUCCESS;
 }
+#endif /* CFG_STM32MP13 || CFG_STM32MP15 */
+
+#if defined(CFG_STM32MP21) || defined(CFG_STM32MP23) || defined(CFG_STM32MP25)
+/*
+ * STGEN must be isolated from the CA35 subsystem while the OPP request is
+ * processed. The generic timer is frozen meanwhile, hence the polling loops.
+ */
+static void ca35ss_stgen_isolate(bool isolate)
+{
+	uint32_t ack = isolate ? 0 : CA35SS_SSC_LPI_STGEN_CSYSACK;
+	uint32_t counter = UINT32_MAX;
+
+	stm32mp_syscfg_write(CA35SS_SSC_LPI_STGEN_NTS_CR,
+			     isolate ? 0 : CA35SS_SSC_LPI_STGEN_CSYSREQ,
+			     CA35SS_SSC_LPI_STGEN_CSYSREQ);
+
+	while ((stm32mp_syscfg_read(CA35SS_SSC_LPI_STGEN_NTS_CR) &
+		CA35SS_SSC_LPI_STGEN_CSYSACK) != ack)
+		if (!--counter)
+			panic("CA35SS STGEN isolation timeout");
+}
+
+/* Adjust CA35 memory timing margins for the overdrive frequencies */
+static void ca35ss_set_overdrive(bool overdrive)
+{
+	uint32_t mem_ctrl = stm32mp_syscfg_read(CA35SS_SSC_MEM_CTRL);
+	uint32_t counter = UINT32_MAX;
+	uint32_t exceptions = 0;
+
+	if (!!(mem_ctrl & CA35SS_SSC_MEM_CTRL_RME) == overdrive)
+		return;
+
+	stm32mp_syscfg_write(CA35SS_SSC_MEM_CTRL,
+			     (overdrive ? CA35SS_SSC_MEM_CTRL_RME : 0) |
+			     CA35SS_SSC_MEM_CTRL_RM_OVERDRIVE,
+			     CA35SS_SSC_MEM_CTRL_RME |
+			     CA35SS_SSC_MEM_CTRL_RM_MASK);
+
+	exceptions = thread_mask_exceptions(THREAD_EXCP_ALL);
+	ca35ss_stgen_isolate(true);
+
+	stm32mp_syscfg_write(CA35SS_SSC_OPP_REQ, CA35SS_SSC_OPP_REQ_REQ,
+			     CA35SS_SSC_OPP_REQ_REQ);
+	while (!(stm32mp_syscfg_read(CA35SS_SSC_OPP_REQ) &
+		 CA35SS_SSC_OPP_REQ_ACK))
+		if (!--counter)
+			panic("CA35SS OPP request timeout");
+	stm32mp_syscfg_write(CA35SS_SSC_OPP_REQ, 0, CA35SS_SSC_OPP_REQ_REQ);
+
+	ca35ss_stgen_isolate(false);
+	thread_unmask_exceptions(exceptions);
+}
+
+/*
+ * CPU runs on the bypass clock while PLL1 and VDDCPU change, so the
+ * order of the voltage and clock updates does not matter.
+ */
+static TEE_Result set_opp(unsigned int opp)
+{
+	struct clk *pll = clk_get_parent_by_index(cpu_opp.clock, 0);
+	struct clk *bypass = clk_get_parent_by_index(cpu_opp.clock, 1);
+	unsigned int freq_khz = cpu_opp.dvfs[opp].freq_khz;
+	bool overdrive = freq_khz > cpu_opp.sustained_freq_khz;
+	TEE_Result res = TEE_ERROR_GENERIC;
+
+	res = clk_set_parent(cpu_opp.clock, bypass);
+	if (res)
+		return res;
+
+	if (!overdrive)
+		ca35ss_set_overdrive(false);
+
+	res = set_opp_voltage(opp);
+	if (!res) {
+		if (overdrive)
+			ca35ss_set_overdrive(true);
+
+		res = clk_set_rate(pll, freq_khz * 1000UL);
+	}
+
+	if (res) {
+		unsigned int cur = cpu_opp.current_opp;
+		bool cur_overdrive = false;
+
+		EMSG("Failed to set OPP %ukHz", freq_khz);
+
+		cur_overdrive = cpu_opp.dvfs[cur].freq_khz >
+				cpu_opp.sustained_freq_khz;
+		if (cur_overdrive)
+			ca35ss_set_overdrive(true);
+		if (set_opp_voltage(cur))
+			panic("Cannot restore VDDCPU");
+		if (!cur_overdrive)
+			ca35ss_set_overdrive(false);
+	}
+
+	if (clk_set_parent(cpu_opp.clock, pll))
+		panic("Cannot switch CPU back to PLL1");
+
+	return res;
+}
+
+static unsigned int sustained_opp(void)
+{
+	unsigned int opp = 0;
+
+	for (opp = 0; opp < cpu_opp.opp_count; opp++)
+		if (cpu_opp.dvfs[opp].freq_khz == cpu_opp.sustained_freq_khz)
+			break;
+
+	return opp;
+}
+#else
+static TEE_Result set_opp(unsigned int opp)
+{
+	unsigned long clk_cpu = clk_get_rate(cpu_opp.clock);
+
+	assert(clk_cpu);
+	if (cpu_opp.dvfs[opp].freq_khz * 1000UL >= clk_cpu)
+		return set_voltage_then_clock(opp);
+	else
+		return set_clock_then_voltage(opp);
+}
+#endif
 
 TEE_Result stm32_cpu_opp_set_level(unsigned int level)
 {
-	unsigned int current_level = 0;
 	TEE_Result res = TEE_ERROR_GENERIC;
 	unsigned int opp = 0;
 
@@ -225,9 +356,7 @@ TEE_Result stm32_cpu_opp_set_level(unsigned int level)
 
 	mutex_lock(&cpu_opp_mu);
 
-	current_level = stm32_cpu_opp_level(cpu_opp.current_opp);
-
-	if (level == current_level) {
+	if (level == stm32_cpu_opp_level(cpu_opp.current_opp)) {
 		mutex_unlock(&cpu_opp_mu);
 		return TEE_SUCCESS;
 	}
@@ -241,11 +370,7 @@ TEE_Result stm32_cpu_opp_set_level(unsigned int level)
 		return TEE_ERROR_BAD_PARAMETERS;
 	}
 
-	if (level < current_level)
-		res = set_clock_then_voltage(opp);
-	else
-		res = set_voltage_then_clock(opp);
-
+	res = set_opp(opp);
 	if (res)
 		EMSG("Failed to set OPP to %ukHz", level);
 	else
@@ -293,25 +418,38 @@ static TEE_Result cpu_opp_pm(enum pm_op op, unsigned int pm_hint,
 {
 	assert(op == PM_OP_SUSPEND || op == PM_OP_RESUME);
 
+#if defined(CFG_STM32MP21) || defined(CFG_STM32MP23) || defined(CFG_STM32MP25)
+	/* Nothing to do on Stop1, LP-Stop1 modes */
+	if (PM_HINT_PLATFORM_STATE(pm_hint) == PM_CORE_LEVEL)
+		return TEE_SUCCESS;
+
+	/* Overdrive VDDCPU is not allowed in LPLV-Stop and deeper modes */
+	if (op == PM_OP_SUSPEND) {
+		if (cpu_opp.current_opp == sustained_opp())
+			return TEE_SUCCESS;
+
+		DMSG("Suspend to OPP %u", sustained_opp());
+		return set_opp(sustained_opp());
+	}
+
+	if (!PM_HINT_IS_STATE(pm_hint, CONTEXT) &&
+	    cpu_opp.current_opp == sustained_opp())
+		return TEE_SUCCESS;
+
+	DMSG("Resume to OPP %u", cpu_opp.current_opp);
+	return set_opp(cpu_opp.current_opp);
+#else
 	/* nothing to do if RCC clock tree is not lost */
 	if (!PM_HINT_IS_STATE(pm_hint, CONTEXT))
 		return TEE_SUCCESS;
 
 	if (op == PM_OP_RESUME) {
-		unsigned long clk_cpu = 0;
-		unsigned int opp = cpu_opp.current_opp;
-
-		DMSG("Resume to OPP %u", opp);
-
-		clk_cpu = clk_get_rate(cpu_opp.clock);
-		assert(clk_cpu);
-		if (cpu_opp.dvfs[opp].freq_khz * 1000 >= clk_cpu)
-			return set_voltage_then_clock(opp);
-		else
-			return set_clock_then_voltage(opp);
+		DMSG("Resume to OPP %u", cpu_opp.current_opp);
+		return set_opp(cpu_opp.current_opp);
 	}
 
 	return TEE_SUCCESS;
+#endif
 }
 DECLARE_KEEP_PAGER(cpu_opp_pm);
 
@@ -323,7 +461,6 @@ static TEE_Result stm32_cpu_opp_get_dt_subnode(const void *fdt, int node)
 	uint64_t freq_khz = 0;
 	uint64_t freq_khz_opp_def = 0;
 	uint32_t volt_uv = 0;
-	unsigned long clk_cpu = 0;
 	unsigned int i = 0;
 	int subnode = 0;
 	TEE_Result res = TEE_ERROR_GENERIC;
@@ -411,13 +548,7 @@ static TEE_Result stm32_cpu_opp_get_dt_subnode(const void *fdt, int node)
 
 	/* Apply the current OPP */
 	DMSG("Set OPP to %"PRIu64"kHz", freq_khz_opp_def);
-	clk_cpu = clk_get_rate(cpu_opp.clock);
-	assert(clk_cpu);
-	if (freq_khz_opp_def * ULL(1000) > clk_cpu)
-		res = set_voltage_then_clock(cpu_opp.current_opp);
-	else
-		res = set_clock_then_voltage(cpu_opp.current_opp);
-
+	res = set_opp(cpu_opp.current_opp);
 	if (res) {
 		EMSG("Failed to set default OPP %u", cpu_opp.current_opp);
 		goto err;
@@ -457,6 +588,13 @@ stm32_cpu_init(const void *fdt, int node, const void *compat_data __unused)
 	res = regulator_dt_get_supply(fdt, node, "cpu", &cpu_opp.regul);
 	if (res)
 		return res;
+
+#if defined(CFG_STM32MP21) || defined(CFG_STM32MP23) || defined(CFG_STM32MP25)
+	/* Bypass clock must stay available for the OPP transitions */
+	res = clk_enable(clk_get_parent_by_index(cpu_opp.clock, 1));
+	if (res)
+		return res;
+#endif
 
 	phandle = fdt32_to_cpu(*cuint);
 	opp_node = fdt_node_offset_by_phandle(fdt, phandle);
