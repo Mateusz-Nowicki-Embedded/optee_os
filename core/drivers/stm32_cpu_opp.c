@@ -332,8 +332,6 @@ static TEE_Result stm32_cpu_opp_get_dt_subnode(const void *fdt, int node)
 	if (!cpu_opp.dvfs)
 		return TEE_ERROR_OUT_OF_MEMORY;
 
-	cpu_opp.opp_count = CFG_STM32MP_OPP_COUNT;
-
 	fdt_for_each_subnode(subnode, fdt, node) {
 		cuint64 = fdt_getprop(fdt, subnode, "opp-hz", NULL);
 		if (!cuint64) {
@@ -366,7 +364,6 @@ static TEE_Result stm32_cpu_opp_get_dt_subnode(const void *fdt, int node)
 		if (stm32_cpu_opp_is_supported(fdt, subnode) != TEE_SUCCESS) {
 			DMSG("Skip SoC OPP %"PRIu64"kHz/%"PRIu32"uV",
 			     freq_khz, volt_uv);
-			cpu_opp.opp_count--;
 			continue;
 		}
 
@@ -374,11 +371,10 @@ static TEE_Result stm32_cpu_opp_get_dt_subnode(const void *fdt, int node)
 		if (!opp_voltage_is_supported(cpu_opp.regul, &volt_uv)) {
 			DMSG("Skip volt OPP %"PRIu64"kHz/%"PRIu32"uV",
 			     freq_khz, volt_uv);
-			cpu_opp.opp_count--;
 			continue;
 		}
 
-		if (i == cpu_opp.opp_count) {
+		if (i == CFG_STM32MP_OPP_COUNT) {
 			EMSG("Too many OPP defined in node %s",
 			     fdt_get_name(fdt, node, NULL));
 			res = TEE_ERROR_GENERIC;
@@ -400,6 +396,8 @@ static TEE_Result stm32_cpu_opp_get_dt_subnode(const void *fdt, int node)
 
 		i++;
 	}
+
+	cpu_opp.opp_count = i;
 
 	/* At least one OPP node shall have a "st,opp-default" property */
 	if (freq_khz_opp_def == 0) {
