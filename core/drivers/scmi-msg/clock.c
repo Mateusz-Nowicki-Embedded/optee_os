@@ -313,6 +313,44 @@ static void scmi_clock_config_set(struct scmi_msg *msg)
 	scmi_status_response(msg, status);
 }
 
+static void scmi_clock_config_get(struct scmi_msg *msg)
+{
+	const struct scmi_clock_config_get_a2p *in_args = (void *)msg->in;
+	struct scmi_clock_config_get_p2a return_values = {
+		.status = SCMI_SUCCESS,
+	};
+	unsigned int clock_id = 0;
+	int32_t state = 0;
+
+	if (msg->in_size != sizeof(*in_args)) {
+		scmi_status_response(msg, SCMI_PROTOCOL_ERROR);
+		return;
+	}
+
+	if (in_args->clock_id >= plat_scmi_clock_count(msg->channel_id)) {
+		scmi_status_response(msg, SCMI_INVALID_PARAMETERS);
+		return;
+	}
+
+	if (in_args->flags & SCMI_CLOCK_CONFIG_GET_OEM_TYPE_MASK) {
+		scmi_status_response(msg, SCMI_NOT_SUPPORTED);
+		return;
+	}
+
+	clock_id = confine_array_index(in_args->clock_id,
+				       plat_scmi_clock_count(msg->channel_id));
+
+	state = plat_scmi_clock_get_state(msg->channel_id, clock_id);
+	if (state < 0) {
+		scmi_status_response(msg, state);
+		return;
+	}
+	if (state)
+		return_values.config = SCMI_CLOCK_CONFIG_GET_ENABLED;
+
+	scmi_write_response(msg, &return_values, sizeof(return_values));
+}
+
 #define SCMI_RATES_BY_ARRAY(_nb_rates, _rem_rates) \
 	SCMI_CLOCK_DESCRIBE_RATES_NUM_RATES_FLAGS((_nb_rates), \
 						SCMI_CLOCK_RATE_FORMAT_LIST, \
@@ -439,6 +477,7 @@ static const scmi_msg_handler_t scmi_clock_handler_table[] = {
 	[SCMI_CLOCK_RATE_GET] = scmi_clock_rate_get,
 	[SCMI_CLOCK_CONFIG_SET] = scmi_clock_config_set,
 	[SCMI_CLOCK_NAME_GET] = scmi_clock_name_get,
+	[SCMI_CLOCK_CONFIG_GET] = scmi_clock_config_get,
 };
 
 static bool message_id_is_supported(unsigned int message_id)

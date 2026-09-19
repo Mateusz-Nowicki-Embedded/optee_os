@@ -24,6 +24,7 @@ enum scmi_clock_command_id {
 	SCMI_CLOCK_RATE_GET = 0x006,
 	SCMI_CLOCK_CONFIG_SET = 0x007,
 	SCMI_CLOCK_NAME_GET = 0x008,
+	SCMI_CLOCK_CONFIG_GET = 0x00B,
 };
 
 /* Protocol attributes */
@@ -142,6 +143,26 @@ struct scmi_clock_config_set_v2_a2p {
 
 struct scmi_clock_config_set_p2a {
 	int32_t status;
+};
+
+/*
+ * Clock Config Get
+ */
+
+#define SCMI_CLOCK_CONFIG_GET_OEM_TYPE_MASK	GENMASK_32(7, 0)
+
+#define SCMI_CLOCK_CONFIG_GET_ENABLED		BIT(0)
+
+struct scmi_clock_config_get_a2p {
+	uint32_t clock_id;
+	uint32_t flags;
+};
+
+struct scmi_clock_config_get_p2a {
+	int32_t status;
+	uint32_t attributes;
+	uint32_t config;
+	uint32_t oem_config_val;
 };
 
 /*
