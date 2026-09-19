@@ -84,12 +84,49 @@ int32_t plat_scmi_clock_rates_array(unsigned int channel_id,
 {
 	TEE_Result res = TEE_ERROR_GENERIC;
 	struct scmi_clk *clk = NULL;
+	unsigned long min = 0;
+	unsigned long max = 0;
+	unsigned long step = 0;
 
 	clk = clk_scmi_get_by_id(channel_id, scmi_id);
 	if (!clk)
 		return SCMI_DENIED;
 
 	res = clk_get_rates_array(clk->clk, start_index, rates, nb_elts);
+	if (res == TEE_SUCCESS)
+		return SCMI_SUCCESS;
+	if (res != TEE_ERROR_NOT_SUPPORTED)
+		return SCMI_GENERIC_ERROR;
+
+	res = clk_get_rates_steps(clk->clk, &min, &max, &step);
+	if (res == TEE_SUCCESS)
+		return SCMI_NOT_SUPPORTED;
+
+	/* Driver describes no rates: expose the current rate as the only one */
+	if (start_index)
+		return SCMI_INVALID_PARAMETERS;
+
+	if (rates && *nb_elts)
+		rates[0] = clk_get_rate(clk->clk);
+
+	*nb_elts = 1;
+
+	return SCMI_SUCCESS;
+}
+
+int32_t plat_scmi_clock_rates_by_step(unsigned int channel_id,
+				      unsigned int scmi_id,
+				      unsigned long *min_max_step)
+{
+	TEE_Result res = TEE_ERROR_GENERIC;
+	struct scmi_clk *clk = NULL;
+
+	clk = clk_scmi_get_by_id(channel_id, scmi_id);
+	if (!clk)
+		return SCMI_DENIED;
+
+	res = clk_get_rates_steps(clk->clk, min_max_step, min_max_step + 1,
+				  min_max_step + 2);
 	if (res == TEE_SUCCESS)
 		return SCMI_SUCCESS;
 	else if (res == TEE_ERROR_NOT_SUPPORTED)
