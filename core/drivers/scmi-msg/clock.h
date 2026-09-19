@@ -12,7 +12,7 @@
 
 #include "common.h"
 
-#define SCMI_PROTOCOL_VERSION_CLOCK	0x20000
+#define SCMI_PROTOCOL_VERSION_CLOCK	0x30000
 
 /*
  * Identifiers of the SCMI Clock Management Protocol commands
