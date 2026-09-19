@@ -101,6 +101,16 @@ int32_t __weak plat_scmi_perf_level_power_cost(unsigned int channel_id __unused,
 	return SCMI_SUCCESS;
 }
 
+int32_t __weak plat_scmi_perf_level_freq(unsigned int channel_id __unused,
+					 unsigned int domain_id __unused,
+					 unsigned int level,
+					 unsigned int *freq_khz)
+{
+	*freq_khz = level;
+
+	return SCMI_SUCCESS;
+}
+
 int32_t __weak plat_scmi_perf_level_get(unsigned int channel_id __unused,
 					unsigned int domain_id __unused,
 					unsigned int *level __unused)
@@ -603,6 +613,7 @@ static void scmi_perf_describe_levels(struct scmi_msg *msg)
 		for (n = 0; n < ret_nb; n++) {
 			unsigned int latency = 0;
 			unsigned int power_cost = 0;
+			unsigned int freq_khz = 0;
 
 			res = plat_scmi_perf_level_latency(msg->channel_id,
 							   domain_id,
@@ -621,10 +632,19 @@ static void scmi_perf_describe_levels(struct scmi_msg *msg)
 			if (res != SCMI_SUCCESS)
 				goto err;
 
+			res = plat_scmi_perf_level_freq(msg->channel_id,
+							domain_id,
+							plat_levels[n],
+							&freq_khz);
+			if (res != SCMI_SUCCESS)
+				goto err;
+
 			levels[n] = (struct scmi_perf_level){
 				.performance_level = plat_levels[n],
 				.power_cost = power_cost,
 				.attributes = latency,
+				.indicative_freq = freq_khz,
+				.level_index = in_args->level_index + n,
 			};
 		}
 

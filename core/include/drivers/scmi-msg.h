@@ -542,6 +542,20 @@ int32_t plat_scmi_perf_level_power_cost(unsigned int channel_id,
 					unsigned int *power_cost);
 
 /*
+ * Get the indicative frequency of a performance level
+ * @channel_id: SCMI channel ID
+ * @domain_id: SCMI performance domain ID
+ * @level: Target performance level
+ * @freq_khz: Output frequency in kHz
+ * Return a compliant SCMI error code
+ *
+ * The default implementation assumes levels are frequencies in kHz.
+ */
+int32_t plat_scmi_perf_level_freq(unsigned int channel_id,
+				  unsigned int domain_id, unsigned int level,
+				  unsigned int *freq_khz);
+
+/*
  * Get current performance level of the domain
  * @channel_id: SCMI channel ID
  * @domain_id: SCMI performance domain ID

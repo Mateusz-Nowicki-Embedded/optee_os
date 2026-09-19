@@ -12,7 +12,7 @@
 
 #include "common.h"
 
-#define SCMI_PROTOCOL_VERSION_PERF_DOMAIN	0x30000
+#define SCMI_PROTOCOL_VERSION_PERF_DOMAIN	0x40000
 
 /*
  * Identifiers of the SCMI Performance Domain Management Protocol commands
@@ -85,6 +85,8 @@ struct scmi_perf_level {
 	uint32_t performance_level;
 	uint32_t power_cost;
 	uint32_t attributes;
+	uint32_t indicative_freq;
+	uint32_t level_index;
 };
 
 struct scmi_perf_describe_levels_a2p {
