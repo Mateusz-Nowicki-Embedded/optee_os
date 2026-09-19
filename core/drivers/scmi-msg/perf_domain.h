@@ -12,7 +12,7 @@
 
 #include "common.h"
 
-#define SCMI_PROTOCOL_VERSION_PERF_DOMAIN	0x10000
+#define SCMI_PROTOCOL_VERSION_PERF_DOMAIN	0x30000
 
 /*
  * Identifiers of the SCMI Performance Domain Management Protocol commands
