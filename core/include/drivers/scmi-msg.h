@@ -13,6 +13,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <util.h>
 
 /* Minimum size expected for SMT based shared memory message buffers */
 #define SMT_BUF_SLOT_SIZE	U(128)
@@ -303,6 +304,23 @@ int32_t plat_scmi_clock_get_state(unsigned int channel_id,
  */
 int32_t plat_scmi_clock_set_state(unsigned int channel_id, unsigned int scmi_id,
 				  bool enable_not_disable);
+
+/* Permission bits reported through plat_scmi_clock_get_permissions() */
+#define SCMI_CLOCK_PERMISSION_STATE_CONTROL	BIT(31)
+#define SCMI_CLOCK_PERMISSION_PARENT_CONTROL	BIT(30)
+#define SCMI_CLOCK_PERMISSION_RATE_CONTROL	BIT(29)
+
+/*
+ * Get agent permissions on a clock
+ * @channel_id: SCMI channel ID
+ * @scmi_id: SCMI clock ID
+ * @permissions: Output bitmask of SCMI_CLOCK_PERMISSION_* flags
+ * Return SCMI_SUCCESS, SCMI_NOT_SUPPORTED if the platform does not restrict
+ * the agent (all controls are then allowed) or a compliant SCMI error code
+ */
+int32_t plat_scmi_clock_get_permissions(unsigned int channel_id,
+					unsigned int scmi_id,
+					uint32_t *permissions);
 
 /* Handlers for SCMI Reset Domain protocol services */
 

@@ -165,6 +165,24 @@ int32_t plat_scmi_clock_set_rate(unsigned int channel_id,
 	return SCMI_SUCCESS;
 }
 
+int32_t plat_scmi_clock_get_permissions(unsigned int channel_id,
+					unsigned int scmi_id,
+					uint32_t *permissions)
+{
+	struct scmi_clk *clk = NULL;
+
+	clk = clk_scmi_get_by_id(channel_id, scmi_id);
+	if (!clk)
+		return SCMI_DENIED;
+
+	/* Parent control is not exposed, CLOCK_PARENT_SET is not implemented */
+	*permissions = SCMI_CLOCK_PERMISSION_STATE_CONTROL;
+	if (clk->clk->ops->set_rate || (clk->clk->flags & CLK_SET_RATE_PARENT))
+		*permissions |= SCMI_CLOCK_PERMISSION_RATE_CONTROL;
+
+	return SCMI_SUCCESS;
+}
+
 int32_t plat_scmi_clock_get_state(unsigned int channel_id,
 				  unsigned int scmi_id)
 {

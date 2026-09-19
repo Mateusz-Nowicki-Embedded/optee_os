@@ -25,6 +25,7 @@ enum scmi_clock_command_id {
 	SCMI_CLOCK_CONFIG_SET = 0x007,
 	SCMI_CLOCK_NAME_GET = 0x008,
 	SCMI_CLOCK_CONFIG_GET = 0x00B,
+	SCMI_CLOCK_GET_PERMISSIONS = 0x00F,
 };
 
 /* Protocol attributes */
@@ -43,6 +44,7 @@ struct scmi_clock_attributes_a2p {
 
 /* Macros for scmi_clock_attributes_p2a:attributes */
 #define SCMI_CLOCK_ATTRIBUTES_EXTENDED_NAME	BIT(29)
+#define SCMI_CLOCK_ATTRIBUTES_RESTRICTED	BIT(1)
 #define SCMI_CLOCK_ATTRIBUTES_ENABLED		BIT(0)
 
 struct scmi_clock_attributes_p2a {
@@ -163,6 +165,24 @@ struct scmi_clock_config_get_p2a {
 	uint32_t attributes;
 	uint32_t config;
 	uint32_t oem_config_val;
+};
+
+/*
+ * Clock Get Permissions
+ */
+
+#define SCMI_CLOCK_PERMISSIONS_ALL \
+	(SCMI_CLOCK_PERMISSION_STATE_CONTROL | \
+	 SCMI_CLOCK_PERMISSION_PARENT_CONTROL | \
+	 SCMI_CLOCK_PERMISSION_RATE_CONTROL)
+
+struct scmi_clock_get_permissions_a2p {
+	uint32_t clock_id;
+};
+
+struct scmi_clock_get_permissions_p2a {
+	int32_t status;
+	uint32_t permissions;
 };
 
 /*

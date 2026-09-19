@@ -68,6 +68,28 @@ int32_t __weak plat_scmi_clock_set_state(unsigned int channel_id __unused,
 	return SCMI_NOT_SUPPORTED;
 }
 
+int32_t __weak plat_scmi_clock_get_permissions(unsigned int channel_id __unused,
+					       unsigned int scmi_id __unused,
+					       uint32_t *permissions __unused)
+{
+	return SCMI_NOT_SUPPORTED;
+}
+
+static int32_t clock_permissions(unsigned int channel_id,
+				 unsigned int clock_id, uint32_t *permissions)
+{
+	int32_t status = SCMI_GENERIC_ERROR;
+
+	status = plat_scmi_clock_get_permissions(channel_id, clock_id,
+						 permissions);
+	if (status == SCMI_NOT_SUPPORTED) {
+		*permissions = SCMI_CLOCK_PERMISSIONS_ALL;
+		status = SCMI_SUCCESS;
+	}
+
+	return status;
+}
+
 static void report_version(struct scmi_msg *msg)
 {
 	struct scmi_protocol_version_p2a return_values = {
@@ -130,6 +152,7 @@ static void scmi_clock_attributes(struct scmi_msg *msg)
 	const char *name = NULL;
 	unsigned int clock_id = 0;
 	int32_t state = 0;
+	uint32_t permissions = 0;
 
 	if (msg->in_size != sizeof(*in_args)) {
 		scmi_status_response(msg, SCMI_PROTOCOL_ERROR);
@@ -165,6 +188,45 @@ static void scmi_clock_attributes(struct scmi_msg *msg)
 	}
 	if (state)
 		return_values.attributes |= SCMI_CLOCK_ATTRIBUTES_ENABLED;
+
+	if (clock_permissions(msg->channel_id, clock_id, &permissions)) {
+		scmi_status_response(msg, SCMI_GENERIC_ERROR);
+		return;
+	}
+	if (permissions != SCMI_CLOCK_PERMISSIONS_ALL)
+		return_values.attributes |= SCMI_CLOCK_ATTRIBUTES_RESTRICTED;
+
+	scmi_write_response(msg, &return_values, sizeof(return_values));
+}
+
+static void scmi_clock_get_permissions(struct scmi_msg *msg)
+{
+	const struct scmi_clock_get_permissions_a2p *in_args = (void *)msg->in;
+	struct scmi_clock_get_permissions_p2a return_values = {
+		.status = SCMI_SUCCESS,
+	};
+	unsigned int clock_id = 0;
+	int32_t status = SCMI_GENERIC_ERROR;
+
+	if (msg->in_size != sizeof(*in_args)) {
+		scmi_status_response(msg, SCMI_PROTOCOL_ERROR);
+		return;
+	}
+
+	if (in_args->clock_id >= plat_scmi_clock_count(msg->channel_id)) {
+		scmi_status_response(msg, SCMI_INVALID_PARAMETERS);
+		return;
+	}
+
+	clock_id = confine_array_index(in_args->clock_id,
+				       plat_scmi_clock_count(msg->channel_id));
+
+	status = clock_permissions(msg->channel_id, clock_id,
+				   &return_values.permissions);
+	if (status) {
+		scmi_status_response(msg, status);
+		return;
+	}
 
 	scmi_write_response(msg, &return_values, sizeof(return_values));
 }
@@ -478,6 +540,7 @@ static const scmi_msg_handler_t scmi_clock_handler_table[] = {
 	[SCMI_CLOCK_CONFIG_SET] = scmi_clock_config_set,
 	[SCMI_CLOCK_NAME_GET] = scmi_clock_name_get,
 	[SCMI_CLOCK_CONFIG_GET] = scmi_clock_config_get,
+	[SCMI_CLOCK_GET_PERMISSIONS] = scmi_clock_get_permissions,
 };
 
 static bool message_id_is_supported(unsigned int message_id)
