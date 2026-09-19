@@ -37,6 +37,7 @@
 struct cpu_dvfs {
 	unsigned int freq_khz;
 	int volt_uv;
+	unsigned int power_uw;
 };
 
 /*
@@ -71,6 +72,13 @@ unsigned int stm32_cpu_opp_count(void)
 unsigned int stm32_cpu_opp_sustained_level(void)
 {
 	return cpu_opp.sustained_freq_khz;
+}
+
+unsigned int stm32_cpu_opp_power_uw(unsigned int opp)
+{
+	assert(opp < cpu_opp.opp_count);
+
+	return cpu_opp.dvfs[opp].power_uw;
 }
 
 /* Perf level relates straight to CPU frequency in kHz */
@@ -461,6 +469,7 @@ static TEE_Result stm32_cpu_opp_get_dt_subnode(const void *fdt, int node)
 	uint64_t freq_khz = 0;
 	uint64_t freq_khz_opp_def = 0;
 	uint32_t volt_uv = 0;
+	uint32_t power_uw = 0;
 	unsigned int i = 0;
 	int subnode = 0;
 	TEE_Result res = TEE_ERROR_GENERIC;
@@ -497,6 +506,11 @@ static TEE_Result stm32_cpu_opp_get_dt_subnode(const void *fdt, int node)
 
 		volt_uv = fdt32_to_cpu(*cuint32);
 
+		power_uw = 0;
+		cuint32 = fdt_getprop(fdt, subnode, "opp-microwatt", NULL);
+		if (cuint32)
+			power_uw = fdt32_to_cpu(*cuint32);
+
 		/* skip OPP when the SOC does not support it */
 		if (stm32_cpu_opp_is_supported(fdt, subnode) != TEE_SUCCESS) {
 			DMSG("Skip SoC OPP %"PRIu64"kHz/%"PRIu32"uV",
@@ -520,6 +534,7 @@ static TEE_Result stm32_cpu_opp_get_dt_subnode(const void *fdt, int node)
 
 		cpu_opp.dvfs[i].freq_khz = freq_khz;
 		cpu_opp.dvfs[i].volt_uv = volt_uv;
+		cpu_opp.dvfs[i].power_uw = power_uw;
 
 		DMSG("Found OPP %u (%"PRIu64"kHz/%"PRIu32"uV) from DT",
 		     i, freq_khz, volt_uv);

@@ -17,6 +17,9 @@ unsigned int stm32_cpu_opp_sustained_level(void);
 /* Get level value identifying CPU operating point @opp_index */
 unsigned int stm32_cpu_opp_level(unsigned int opp);
 
+/* Get power in microwatts of CPU operating point @opp, 0 if unknown */
+unsigned int stm32_cpu_opp_power_uw(unsigned int opp);
+
 /* Request to switch to CPU operating point related to @level */
 TEE_Result stm32_cpu_opp_set_level(unsigned int level);
 
